@@ -1,8 +1,17 @@
-import axios from 'axios';
-
 type Optional<T, U extends keyof T> = {
   [P in U]+?: T[P];
 } & Omit<T, U>;
+/**
+ * @type T 基类
+ * @type U 排除的key
+ * @type V 可选的key
+ */
+type OmitAndOptional<T, U extends keyof T, V extends keyof Omit<T, U>> = Optional<Omit<T, U>, V>;
+export type DbTableColumnTypeSource = OmitAndOptional<
+  DbTableColumnType,
+  'csNullableType',
+  'scale' | 'size' | 'isPrimary'
+>;
 export class DbTableColumnType {
   /** 名称 */
   name: string;
@@ -14,31 +23,40 @@ export class DbTableColumnType {
   csType: string;
   /** 是否主键字段 */
   isPrimary: boolean;
-  constructor(source: Optional<DbTableColumnType, 'scale' | 'size' | 'isPrimary'>) {
+  constructor(source: DbTableColumnTypeSource) {
     this.name = source.name;
     this.scale = source.scale ?? false;
     this.size = source.size ?? false;
     this.csType = source.csType;
     this.isPrimary = source.isPrimary ?? false;
   }
+  get csNullableType() {
+    switch (this.csType) {
+      case 'string':
+        return 'string';
+      default:
+        return `${this.csType}?`;
+    }
+  }
   toString() {
     return this.name;
   }
 }
-export type DbTableColumnSource = Optional<
-  Omit<
-    DbTableColumn,
-    | 'isDefaultProp'
-    | 'isPrimaryName'
-    | 'isRequiredName'
-    | 'isUniqueName'
-    | 'isGetPropName'
-    | 'isListPropName'
-    | 'isFullyMatchName'
-    | 'isCreatePropName'
-    | 'isUpdatePropName'
-    | 'isImportPropName'
-  >,
+export type DbTableColumnSource = OmitAndOptional<
+  DbTableColumn,
+  | 'sqlType'
+  | 'csProp'
+  | 'csNullableProp'
+  | 'isDefaultProp'
+  | 'isPrimaryName'
+  | 'isRequiredName'
+  | 'isUniqueName'
+  | 'isGetPropName'
+  | 'isListPropName'
+  | 'isFullyMatchName'
+  | 'isCreatePropName'
+  | 'isUpdatePropName'
+  | 'isImportPropName',
   | 'name'
   | 'desc'
   | 'index'
@@ -55,7 +73,6 @@ export type DbTableColumnSource = Optional<
   | 'isCreateProp'
   | 'isUpdateProp'
   | 'isImportProp'
-  | 'sqlType'
 >;
 export class DbTableColumn {
   /** 名称 */
@@ -122,6 +139,20 @@ export class DbTableColumn {
     if (this.type.size) type += `)`;
     return type;
   }
+  get csProp() {
+    return `        /// <summary>
+        /// ${this.desc}
+        /// </summary>
+        public ${this.type?.csType} ${this.name} { get; set; }
+`;
+  }
+  get csNullableProp() {
+    return `        /// <summary>
+        /// ${this.desc}
+        /// </summary>
+        public ${this.type?.csNullableType} ${this.name} { get; set; }
+`;
+  }
   get isPrimaryName() {
     return this.isPrimary ? '是' : '否';
   }
@@ -132,13 +163,14 @@ export class DbTableColumn {
     return this.isUnique ? '是' : '否';
   }
   get isListPropName() {
-    return this.isListProp ? '是' : '否';
+    return this.isListProp ? `是${this.isFullyMatch ? '(精确)' : '(模糊)'}` : '否';
   }
   get isFullyMatchName() {
+    if (!this.isListProp) return '-';
     return this.isFullyMatch ? '是' : '否';
   }
   get isGetPropName() {
-    return this.isGetProp ? '是' : '否';
+    return this.isRequired && this.isUnique && this.isGetProp ? '是' : '否';
   }
   get isCreatePropName() {
     return this.isCreateProp ? '是' : '否';
@@ -245,9 +277,19 @@ export const ListDefaultDbTableColumn = () => [
     isImportProp: false,
   }),
 ];
-export type DbTableSource = Optional<
-  Omit<DbTable, 'getSQLCreation' | 'getCSModel'>,
-  'name' | 'db' | 'schema' | 'namespace' | 'desc' | 'dbTableColumns'
+export type DbTableSource = OmitAndOptional<
+  DbTable,
+  | 'primaryKey'
+  | 'csModelName'
+  | 'nonDefaultColumns'
+  | 'creationSql'
+  | 'csModel'
+  | 'listColumns'
+  | 'uniqueColumns'
+  | 'getColumns'
+  | 'createColumns'
+  | 'updateColumns',
+  'name' | 'db' | 'schema' | 'namespace' | 'desc' | 'columns'
 >;
 export class DbTable {
   /** 名称 */
@@ -261,25 +303,580 @@ export class DbTable {
   /** 描述 */
   desc: string;
   /** 列 */
-  dbTableColumns: DbTableColumn[];
+  columns: DbTableColumn[];
   constructor(source: DbTableSource) {
     this.name = source.name ?? '';
     this.db = source.db ?? 'AUXMESDB';
     this.schema = source.schema ?? 'dbo';
     this.namespace = source.namespace ?? 'Siemens.MES.SysMgt.Bus';
     this.desc = source.desc ?? source.name ?? '';
-    this.dbTableColumns = ListDefaultDbTableColumn();
-    this.dbTableColumns.splice(1, 0, ...(source.dbTableColumns ?? []));
+    this.columns = ListDefaultDbTableColumn();
+    this.columns.splice(1, 0, ...(source.columns ?? []));
   }
-  async getSQLCreation() {
-    const res = await axios.post<string>('/api/tables/sql/creation', this);
-    if (typeof res === 'string') return res;
-    else return '';
+  get primaryKey() {
+    return this.columns.find((i) => i.isPrimary);
   }
-  async getCSModel() {
-    const res = await axios.post<string>('/api/tables/cs/model', this);
-    if (typeof res === 'string') return res;
-    else return '';
+  get csModelName() {
+    return this.name.replaceAll('_', '');
+  }
+  get nonDefaultColumns() {
+    return this.columns.filter((i) => !i.isDefaultProp).sort((a, b) => a.index - b.index);
+  }
+  get listColumns() {
+    return this.nonDefaultColumns.filter((i) => i.isListProp);
+  }
+  get uniqueColumns() {
+    return this.nonDefaultColumns.filter((i) => i.isRequired && i.isUnique);
+  }
+  get getColumns() {
+    return this.uniqueColumns.filter((i) => i.isGetProp);
+  }
+  get createColumns() {
+    return this.nonDefaultColumns.filter((i) => i.isCreateProp);
+  }
+  get updateColumns() {
+    return this.nonDefaultColumns.filter((i) => i.isUpdateProp);
+  }
+  /** 获取创建表SQL */
+  get creationSql() {
+    return `SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [${this.db}].[${this.schema}].[${this.name}](
+${this.columns
+  .map(
+    (i) =>
+      `  [${i.name}] ${i.sqlType}${
+        (i.isPrimary && i.type?.name === 'bigint' && ' IDENTITY(1,1)') || ''
+      } ${i.isRequired ? 'NOT NULL' : 'NULL'},`
+  )
+  .join('\n')}
+  CONSTRAINT [PK_${this.name}] PRIMARY KEY CLUSTERED ([Id] ASC) WITH (
+      PAD_INDEX = OFF,
+      STATISTICS_NORECOMPUTE = OFF,
+      IGNORE_DUP_KEY = OFF,
+      ALLOW_ROW_LOCKS = ON,
+      ALLOW_PAGE_LOCKS = ON
+    ) ON [PRIMARY]
+  ) ON [PRIMARY]
+GO
+${this.columns
+  .map(
+    (i) => `EXEC sys.sp_addextendedproperty @name = N'MS_Description',
+  @value = N'${i.desc}',
+  @level0type = N'SCHEMA',
+  @level0name = N'${this.schema}',
+  @level1type = N'TABLE',
+  @level1name = N'${this.name}',
+  @level2type = N'COLUMN',
+  @level2name = N'${i.name}'
+GO
+`
+  )
+  .join('')}`;
+  }
+  /** 获取C#模型 */
+  get csModel() {
+    return `using Dapper;
+using Dapper.Contrib.Extensions;
+using Siemens.MES.Public;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+
+namespace ${this.namespace}
+{
+    /// <summary>
+    /// ${this.desc}
+    /// </summary>
+    [Table("${this.db}.${this.schema}.${this.name}")]
+    public class ${this.csModelName}
+    {
+        /// <summary>
+        /// 主键Id
+        /// </summary>
+        ${this.primaryKey?.type?.name === 'long' ? '[Key]' : '[ExplicitKey]'}
+        public ${this.primaryKey?.type?.csType} Id { get; set; }
+${this.nonDefaultColumns.map((i) => i.csProp).join('')}        /// <summary>
+        /// 创建人
+        /// </summary>
+        public string CreateBy { get; set; }
+        /// <summary>
+        /// 创建时间
+        /// </summary>
+        public DateTime CreateTime { get; set; }
+        /// <summary>
+        /// 修改人
+        /// </summary>
+        public string ModifyBy { get; set; }
+        /// <summary>
+        /// 修改时间
+        /// </summary>
+        public DateTime? ModifyTime { get; set; }
+        /// <summary>
+        /// 删除标记
+        /// </summary>
+        public int DeleteFlag { get; set; } = 0;
+    }
+    /// <summary>
+    /// ${this.desc}Dto
+    /// </summary>
+    public class ${this.csModelName}Dto : ${this.csModelName}
+    {
+        /// <summary>
+        /// 创建人名称
+        /// </summary>
+        public string CreateByName { get; set; }
+        /// <summary>
+        /// 修改人名称
+        /// </summary>
+        public string ModifyByName { get; set; }
+    }
+    /// <summary>
+    /// ${this.desc}列表Dto
+    /// </summary>
+    public class List${this.csModelName}Dto
+    {
+${this.listColumns.map((i) => i.csProp).join('')}        /// <summary>
+        /// 包含已删除
+        /// </summary>
+        public bool IncludeDeleted { get; set; } = false;
+        /// <summary>
+        /// 数据验证
+        /// </summary>
+        /// <returns>是否合法, 错误信息</returns>
+        public virtual Tuple<bool, string> Validate()
+        {
+            var errors = new List<string>();
+            return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
+        }
+    }
+    /// <summary>
+    /// ${this.desc}分页列表Dto
+    /// </summary>
+    public class PagedList${this.csModelName}Dto : List${this.csModelName}Dto, IPagedListDto
+    {
+        public int Index { get; set; }
+        public int Size { get; set; }
+    }
+    /// <summary>
+    /// ${this.desc}获取Dto
+    /// </summary>
+    public class Get${this.csModelName}Dto
+    {
+        /// <summary>
+        /// 主键Id
+        /// </summary>
+        public ${this.primaryKey?.type?.csNullableType} Id { get; set; }
+${this.getColumns.map((i) => i.csProp).join('')}        /// <summary>
+        /// 数据验证
+        /// </summary>
+        /// <returns>是否合法, 错误信息</returns>
+        public virtual Tuple<bool, string> Validate()
+        {
+            var errors = new List<string>();
+            if (!Id.HasValue${this.getColumns
+              .map((i) =>
+                i.type?.csType === 'string'
+                  ? ` && string.IsNullOrWhiteSpace(${i.name})`
+                  : ` && !${i.name}.HasValue`
+              )
+              .join('')})
+                errors.Add("条件为空");
+            return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
+        }
+    }
+${
+  this.uniqueColumns.length
+    ? `    /// <summary>
+    /// ${this.desc}唯一性校验Dto
+    /// </summary>
+    public class UniqueValidate${this.csModelName}Dto
+    {
+        /// <summary>
+        /// 排除主键Id
+        /// </summary>
+        public ${this.primaryKey?.type?.csNullableType} ExcludeId { get; set; }
+${this.uniqueColumns.map((i) => i.csNullableProp).join('')}        /// <summary>
+        /// 数据验证
+        /// </summary>
+        /// <returns>是否合法, 错误信息</returns>
+        public Tuple<bool, string> Validate()
+        {
+            var errors = new List<string>();
+            if (!ExcludeId.HasValue${this.uniqueColumns
+              .map((i) =>
+                i.type?.csType === 'string'
+                  ? ` && string.IsNullOrWhiteSpace(${i.name})`
+                  : ` && !${i.name}.HasValue`
+              )
+              .join('')})
+                errors.Add("条件为空");
+            return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
+        }
+    }
+`
+    : ''
+}    /// <summary>
+    /// ${this.desc}创建Dto
+    /// </summary>
+    [Table("${this.db}.${this.schema}.${this.name}")]
+    public class Create${this.csModelName}Dto
+    {
+${
+  this.primaryKey?.type?.csType === 'Guid'
+    ? `        /// <summary>
+        /// 主键Id
+        /// </summary>
+        [ExplicitKey]
+        public Guid Id { get; set; } = Guid.NewGuid()
+`
+    : ''
+}${this.createColumns.map((i) => i.csProp).join('')}        /// <summary>
+        /// 创建人
+        /// </summary>
+        public string CreateBy { get; set; }
+        /// <summary>
+        /// 创建时间
+        /// </summary>
+        public DateTime CreateTime => DateTime.Now;
+        /// <summary>
+        /// 删除标记
+        /// </summary>
+        public int DeleteFlag => 0;
+        /// <summary>
+        /// 数据验证
+        /// </summary>
+        /// <returns>是否合法, 错误信息</returns>
+        public Tuple<bool, string> Validate()
+        {
+            var errors = new List<string>();
+${this.getColumns
+  .filter((i) => i.isRequired)
+  .map(
+    (i) => `            if (${
+      i.type?.csType === 'string' ? `string.IsNullOrWhiteSpace(${i.name})` : `!${i.name}.HasValue`
+    })
+                errors.Add("${i.desc}为空");
+`
+  )
+  .join('')}            if (string.IsNullOrWhiteSpace(CreateBy))
+                errors.Add("创建人为空");
+            return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
+        }
+    }
+    /// <summary>
+    /// ${this.desc}更新Dto
+    /// </summary>
+    [Table("${this.db}.${this.schema}.${this.name}")]
+    public class Update${this.csModelName}Dto
+    {
+        /// <summary>
+        /// 主键Id
+        /// </summary>
+        public ${this.primaryKey?.type?.csType} Id { get; set; }
+${this.updateColumns.map((i) => i.csProp).join('')}        /// <summary>
+        /// 修改人
+        /// </summary>
+        public string ModifyBy { get; set; }
+        /// <summary>
+        /// 修改时间
+        /// </summary>
+        public DateTime ModifyTime => DateTime.Now;
+        /// <summary>
+        /// 数据验证
+        /// </summary>
+        /// <returns>是否合法, 错误信息</returns>
+        public Tuple<bool, string> Validate()
+        {
+            var errors = new List<string>();
+${this.createColumns
+  .filter((i) => i.isRequired && i.type?.csType === 'string')
+  .map(
+    (i) => `            if (string.IsNullOrWhiteSpace(${i.name}))
+                errors.Add("${i.desc}为空");
+`
+  )
+  .join('')}            if (string.IsNullOrWhiteSpace(ModifyBy))
+                errors.Add("修改人为空");
+            return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
+        }
+    }
+    /// <summary>
+    /// ${this.desc}删除Dto
+    /// </summary>
+    [Table("${this.db}.${this.schema}.${this.name}")]
+    public class Delete${this.csModelName}Dto
+    {
+        /// <summary>
+        /// 主键Id
+        /// </summary>
+        public ${this.primaryKey?.type?.csType} Id { get; set; }
+        /// <summary>
+        /// 修改人
+        /// </summary>
+        public string ModifyBy { get; set; }
+        /// <summary>
+        /// 修改时间
+        /// </summary>
+        public DateTime ModifyTime => DateTime.Now;
+        /// <summary>
+        /// 删除标记
+        /// </summary>
+        public int DeleteFlag => 1;
+        /// <summary>
+        /// 数据验证
+        /// </summary>
+        /// <returns>是否合法, 错误信息</returns>
+        public Tuple<bool, string> Validate()
+        {
+            var errors = new List<string>();
+            if (string.IsNullOrWhiteSpace(ModifyBy))
+                errors.Add("修改人为空");
+            return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
+        }
+    }
+    public class ${this.csModelName}BusBasic
+    {
+        /// <summary>
+        /// 过滤${this.desc}
+        /// </summary>
+        /// <param name="dto">${this.desc}列表Dto</param>
+        /// <returns>过滤条件</returns>
+        private string Filter${this.csModelName}(List${this.csModelName}Dto dto)
+        {
+            var conditions = new List<string>();
+{{ range $column := .GetCSListProps }}{{ if eq $column.GetCSType "string" }}            if (!string.IsNullOrWhiteSpace(dto.{{ $column.Name }}))
+            {
+                dto.{{ $column.Name }} = $"%{dto.{{ $column.Name }}}%";
+                conditions.Add("{{ $column.Name }} LIKE @{{ $column.Name }}");
+            }
+{{ else }}            if (dto.{{ $column.Name }}.HasValue)
+                conditions.Add("{{ $column.Name }}=@{{ $column.Name }}");
+{{ end }}{{ end }}            if (!dto.IncludeDeleted)
+                conditions.Add("DeleteFlag=0");
+            return conditions.Count > 0 ? $"WHERE {string.Join(" AND ", conditions)}" : "";
+        }
+        /// <summary>
+        /// 获取${this.desc}列表
+        /// </summary>
+        /// <param name="dto">${this.desc}列表Dto</param>
+        /// <returns>${this.desc}列表</returns>
+        public Tuple<IEnumerable<${this.csModelName}Dto>, string> List${this.csModelName}(List${
+      this.csModelName
+    }Dto dto)
+        {
+            try
+            {
+                var valid = dto.Validate();
+                if (!valid.Item1)
+                    return Tuple.Create((IEnumerable<${this.csModelName}Dto>)null, valid.Item2);
+                using (var db = ConnectionFactory.${this.db}Connection())
+                {
+                    var filter = Filter${this.csModelName}(dto);
+                    var sql = $@"SELECT * FROM ${this.db}.${this.schema}.${this.name}
+{filter}";
+                    var res = db.Query<${this.csModelName}Dto>(sql, dto);
+                    return Tuple.Create(res, "");
+                }
+            }
+            catch (Exception ex) {
+                return Tuple.Create((IEnumerable<${this.csModelName}Dto>)null, ex.Message);
+            }
+        }
+        /// <summary>
+        /// 获取${this.desc}分页列表
+        /// </summary>
+        /// <param name="dto">${this.desc}分页列表Dto</param>
+        /// <returns>${this.desc}分页列表</returns>
+        public Tuple<PagedList<${this.csModelName}Dto>, string> PagedList${
+      this.csModelName
+    }(PagedList${this.csModelName}Dto dto)
+        {
+            try
+            {
+                var valid = dto.Validate();
+                if (!valid.Item1)
+                    return Tuple.Create((PagedList<${this.csModelName}Dto>)null, valid.Item2);
+                using (var db = ConnectionFactory.${this.db}Connection())
+                {
+                    var filter = Filter${this.csModelName}(dto);
+                    var tmp = $@"SELECT {0} FROM ${this.db}.${this.schema}.${this.name}
+{filter}{1}";
+                    var totalSql = string.Format(tmp, "COUNT(Id)", "");
+                    var itemsSql = string.Format(tmp, "*", @"
+ORDER BY Id
+OFFSET @Index*@Size ROWS
+FETCH NEXT @Size ROWS ONLY");
+                    var total = db.QueryFirst<int>(totalSql, dto);
+                    var items = db.Query<${this.csModelName}Dto>(itemsSql, dto);
+                    var res = new PagedList<${this.csModelName}Dto>
+                    {
+                        Total = total,
+                        Items = items,
+                    };
+                    return Tuple.Create(res, "");
+                }
+            }
+            catch (Exception ex) {
+                return Tuple.Create((PagedList<${this.csModelName}Dto>)null, ex.Message);
+            }
+        }
+        /// <summary>
+        /// 获取${this.desc}
+        /// </summary>
+        /// <param name="dto">${this.desc}Dto</param>
+        /// <returns>${this.desc}, 错误信息</returns>
+        public Tuple<${this.csModelName}Dto, string> Get${this.csModelName}(Get${
+      this.csModelName
+    }Dto dto)
+        {
+            try
+            {
+                var valid = dto.Validate();
+                if (!valid.Item1)
+                    return Tuple.Create((${this.csModelName}Dto)null, valid.Item2);
+                using (var db = ConnectionFactory.${this.db}Connection())
+                {
+                    var sql = @"SELECT * FROM ${this.db}.${this.schema}.${this.name}
+WHERE";
+                    if (dto.Id.HasValue)
+                        sql += " Id=@Id";
+    {{ range $column := .GetCSGetProps }}                else if ({{ if eq $column.GetCSType "string" }}!string.IsNullOrWhiteSpace(dto.{{ $column.Name }}){{ else }}dto.{{ $column.Name }}.HasValue{{ end }})
+                        sql += " {{ $column.Name }}=@{{ $column.Name }} AND DeleteFlag=0";
+    {{ end }}                var res = db.QueryFirstOrDefault<${this.csModelName}Dto>(sql, dto);
+                    return Tuple.Create(res, "");
+                }
+            }
+            catch (Exception ex) {
+                return Tuple.Create((${this.csModelName}Dto)null, ex.Message);
+            }
+        }
+        /// <summary>
+        /// 唯一性校验${this.desc}
+        /// </summary>
+        /// <param name="dto">唯一性校验${this.desc}Dto</param>
+        /// <returns>校验结果, 错误信息</returns>
+        public Tuple<bool, string> UniqueValidate${this.csModelName}(UniqueValidate${
+      this.csModelName
+    }Dto dto)
+        {
+            try
+            {
+                var valid = dto.Validate();
+                if (!valid.Item1)
+                    return valid;
+                using (var db = ConnectionFactory.${this.db}Connection())
+                {
+                    var name = "";
+                    var sql = @"SELECT COUNT(Code) FROM ${this.db}.${this.schema}.${this.name}
+WHERE 1=1";
+                    if (dto.ExcludeId.HasValue)
+                        sql += " AND Id<>@ExcludeId";
+    {{ range $column := .GetCSUniqueProps }}                if ({{ if eq $column.GetCSType "string" }}!string.IsNullOrWhiteSpace(dto.{{ $column.Name }}){{ else }}dto.{{ $column.Name }}.HasValue{{ end }})
+                    {
+                        sql += " AND {{ $column.Name }}=@{{ $column.Name }}";
+                        name += "{{ $column.Description }}";
+                    }
+    {{ end }}                sql += " AND DeleteFlag=0";
+                    var cnt = db.QueryFirst<int>(sql, dto);
+                    if (cnt > 0)
+                        return Tuple.Create(false, $"{name}重复");
+                    return Tuple.Create(true, "");
+                }
+            }
+            catch (Exception ex) {
+                return Tuple.Create(false, ex.Message);
+            }
+        }
+        /// <summary>
+        /// 创建${this.desc}
+        /// </summary>
+        /// <param name="dto">创建${this.desc}Dto</param>
+        /// <returns>主键Id, 错误信息</returns>
+        public Tuple<${this.primaryKey?.type?.csNullableType}, string> Create${
+      this.csModelName
+    }(Create${this.csModelName}Dto dto)
+        {
+            try
+            {
+                var valid = dto.Validate();
+                if (!valid.Item1)
+                    return Tuple.Create((${
+                      this.primaryKey?.type?.csNullableType
+                    })null, valid.Item2);
+                var validDto = new UniqueValidate${this.csModelName}Dto
+                {
+{{ range $column := .GetCSUniqueProps }}                    {{ $column.Name }} = dto.{{ $column.Name }},
+{{ end }}                };
+                valid = UniqueValidate${this.csModelName}(validDto);
+                if (!valid.Item1)
+                    return Tuple.Create((${
+                      this.primaryKey?.type?.csNullableType
+                    })null, valid.Item2);
+                using (var db = ConnectionFactory.${this.db}Connection())
+                {
+                    var res = db.Insert(dto);
+                    return Tuple.Create((${this.primaryKey?.type?.csNullableType})res, "");
+                }
+            }
+            catch (Exception ex) {
+                return Tuple.Create((${this.primaryKey?.type?.csNullableType})null, ex.Message);
+            }
+        }
+        /// <summary>
+        /// 更新${this.desc}
+        /// </summary>
+        /// <param name="dto">更新${this.desc}Dto</param>
+        /// <returns>是否成功, 错误信息</returns>
+        public Tuple<bool, string> Update${this.csModelName}(Update${this.csModelName}Dto dto)
+        {
+            try
+            {
+                var valid = dto.Validate();
+                if (!valid.Item1) return valid;
+                var validDto = new UniqueValidate${this.csModelName}Dto
+                {
+                    ExcludeId = dto.Id,
+{{ range $column := .GetCSUniqueProps }}                    {{ $column.Name }} = dto.{{ $column.Name }},
+{{ end }}                };
+                valid = UniqueValidate${this.csModelName}(validDto);
+                if (!valid.Item1) return valid;
+                using (var db = ConnectionFactory.${this.db}Connection())
+                {
+                    var res = db.Update(dto);
+                    return Tuple.Create(res, "");
+                }
+            }
+            catch (Exception ex) {
+                return Tuple.Create(false, ex.Message);
+            }
+        }
+        /// <summary>
+        /// 删除${this.desc}
+        /// </summary>
+        /// <param name="dto">删除${this.desc}Dto</param>
+        /// <returns>是否成功, 错误信息</returns>
+        public Tuple<bool, string> Delete${this.csModelName}(Delete${this.csModelName}Dto dto)
+        {
+            try
+            {
+                var valid = dto.Validate();
+                if (!valid.Item1) return valid;
+                using (var db = ConnectionFactory.${this.db}Connection())
+                {
+                    var res = db.Update(dto);
+                    return Tuple.Create(res, "");
+                }
+            }
+            catch (Exception ex) {
+                return Tuple.Create(false, ex.Message);
+            }
+        }
+    }
+}`;
   }
 }
-export type DbTableFormRule = Omit<DbTable, 'getSQLCreation' | 'getCSModel'>;
+export type DbTableFormRule = Omit<DbTable, 'creationSql' | 'getCSModel'>;
