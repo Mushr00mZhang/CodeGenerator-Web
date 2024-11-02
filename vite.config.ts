@@ -16,7 +16,7 @@ export default defineConfig({
   server: {
     port: 3012,
     proxy: {
-      '/code-generator/api/': {
+      '/api/': {
         target: 'http://localhost:3013',
         changeOrigin: true,
         // rewrite: (path) => path.replace(/^\/api/, ''),
