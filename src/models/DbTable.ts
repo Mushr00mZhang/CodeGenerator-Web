@@ -397,7 +397,7 @@ namespace ${this.namespace}
         /// <summary>
         /// 主键Id
         /// </summary>
-        ${this.primaryKey?.type?.name === 'long' ? '[Key]' : '[ExplicitKey]'}
+        ${this.primaryKey?.type?.csType === 'long' ? '[Key]' : '[ExplicitKey]'}
         public ${this.primaryKey?.type?.csType} Id { get; set; }
 ${this.nonDefaultColumns.map((i) => i.csProp).join('')}        /// <summary>
         /// 创建人
@@ -458,8 +458,8 @@ ${this.listColumns.map((i) => i.csProp).join('')}        /// <summary>
     /// </summary>
     public class PagedList${this.csModelName}Dto : List${this.csModelName}Dto, IPagedListDto
     {
-        public int Index { get; set; }
-        public int Size { get; set; }
+        public int Index { get; set; } = 0;
+        public int Size { get; set; } = 20;
     }
     /// <summary>
     /// ${this.desc}获取Dto
@@ -506,13 +506,13 @@ ${this.uniqueColumns.map((i) => i.csNullableProp).join('')}        /// <summary>
         public Tuple<bool, string> Validate()
         {
             var errors = new List<string>();
-            if (!ExcludeId.HasValue${this.uniqueColumns
+            if (${this.uniqueColumns
               .map((i) =>
                 i.type?.csType === 'string'
-                  ? ` && string.IsNullOrWhiteSpace(${i.name})`
-                  : ` && !${i.name}.HasValue`
+                  ? `string.IsNullOrWhiteSpace(${i.name})`
+                  : `!${i.name}.HasValue`
               )
-              .join('')})
+              .join(' && \n')})
                 errors.Add("条件为空");
             return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
         }
@@ -638,7 +638,7 @@ ${this.createColumns
             return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
         }
     }
-    public class ${this.csModelName}BusBasic
+    public class ${this.csModelName}Service
     {
         /// <summary>
         /// 过滤${this.desc}
@@ -648,14 +648,20 @@ ${this.createColumns
         private string Filter${this.csModelName}(List${this.csModelName}Dto dto)
         {
             var conditions = new List<string>();
-{{ range $column := .GetCSListProps }}{{ if eq $column.GetCSType "string" }}            if (!string.IsNullOrWhiteSpace(dto.{{ $column.Name }}))
+${this.listColumns
+  .map((i) =>
+    i.type?.csType === 'string' && !i.isFullyMatch
+      ? `            if (!string.IsNullOrWhiteSpace(dto.${i.name}))
             {
-                dto.{{ $column.Name }} = $"%{dto.{{ $column.Name }}}%";
-                conditions.Add("{{ $column.Name }} LIKE @{{ $column.Name }}");
+                dto.${i.name} = $"%{dto.${i.name}}%";
+                conditions.Add("${i.name} LIKE @${i.name}");
             }
-{{ else }}            if (dto.{{ $column.Name }}.HasValue)
-                conditions.Add("{{ $column.Name }}=@{{ $column.Name }}");
-{{ end }}{{ end }}            if (!dto.IncludeDeleted)
+`
+      : `            if (dto.${i.name}.HasValue)
+                conditions.Add("${i.name}=@${i.name}");
+`
+  )
+  .join('')}            if (!dto.IncludeDeleted)
                 conditions.Add("DeleteFlag=0");
             return conditions.Count > 0 ? $"WHERE {string.Join(" AND ", conditions)}" : "";
         }
@@ -663,7 +669,7 @@ ${this.createColumns
         /// 获取${this.desc}列表
         /// </summary>
         /// <param name="dto">${this.desc}列表Dto</param>
-        /// <returns>${this.desc}列表</returns>
+        /// <returns>${this.desc}列表, 错误信息</returns>
         public Tuple<IEnumerable<${this.csModelName}Dto>, string> List${this.csModelName}(List${
       this.csModelName
     }Dto dto)
@@ -676,8 +682,16 @@ ${this.createColumns
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
                     var filter = Filter${this.csModelName}(dto);
-                    var sql = $@"SELECT * FROM ${this.db}.${this.schema}.${this.name}
-{filter}";
+                    var sql = $@"SELECT i.*
+    ,cu.Name CreateByName
+    ,mu.Name ModifyByName
+FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
+LEFT JOIN AlertDb.dbo.PM_WECHAT_USER cu WITH(NOLOCK)
+    ON cu.UserID COLLATE Latin1_General_CI_AS=i.CreateBy AND cu.RowDeleted=0
+LEFT JOIN AlertDb.dbo.PM_WECHAT_USER mu WITH(NOLOCK)
+    ON mu.UserID COLLATE Latin1_General_CI_AS=i.ModifyBy AND mu.RowDeleted=0
+{filter}
+ORDER BY i.CreateTime";
                     var res = db.Query<${this.csModelName}Dto>(sql, dto);
                     return Tuple.Create(res, "");
                 }
@@ -690,7 +704,7 @@ ${this.createColumns
         /// 获取${this.desc}分页列表
         /// </summary>
         /// <param name="dto">${this.desc}分页列表Dto</param>
-        /// <returns>${this.desc}分页列表</returns>
+        /// <returns>${this.desc}分页列表, 错误信息</returns>
         public Tuple<PagedList<${this.csModelName}Dto>, string> PagedList${
       this.csModelName
     }(PagedList${this.csModelName}Dto dto)
@@ -703,11 +717,18 @@ ${this.createColumns
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
                     var filter = Filter${this.csModelName}(dto);
-                    var tmp = $@"SELECT {0} FROM ${this.db}.${this.schema}.${this.name}
+                    var tmp = $@"SELECT {0}
+FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
+LEFT JOIN AlertDb.dbo.PM_WECHAT_USER cu WITH(NOLOCK)
+    ON cu.UserID COLLATE Latin1_General_CI_AS=i.CreateBy AND cu.RowDeleted=0
+LEFT JOIN AlertDb.dbo.PM_WECHAT_USER mu WITH(NOLOCK)
+    ON mu.UserID COLLATE Latin1_General_CI_AS=i.ModifyBy AND mu.RowDeleted=0
 {filter}{1}";
                     var totalSql = string.Format(tmp, "COUNT(Id)", "");
-                    var itemsSql = string.Format(tmp, "*", @"
-ORDER BY Id
+                    var itemsSql = string.Format(tmp, @"i.*
+    ,cu.Name CreateByName
+    ,mu.Name ModifyByName", @"
+ORDER BY i.CreateTime
 OFFSET @Index*@Size ROWS
 FETCH NEXT @Size ROWS ONLY");
                     var total = db.QueryFirst<int>(totalSql, dto);
@@ -727,7 +748,7 @@ FETCH NEXT @Size ROWS ONLY");
         /// <summary>
         /// 获取${this.desc}
         /// </summary>
-        /// <param name="dto">${this.desc}Dto</param>
+        /// <param name="dto">${this.desc}获取Dto</param>
         /// <returns>${this.desc}, 错误信息</returns>
         public Tuple<${this.csModelName}Dto, string> Get${this.csModelName}(Get${
       this.csModelName
@@ -740,13 +761,28 @@ FETCH NEXT @Size ROWS ONLY");
                     return Tuple.Create((${this.csModelName}Dto)null, valid.Item2);
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
-                    var sql = @"SELECT * FROM ${this.db}.${this.schema}.${this.name}
+                    var sql = @"SELECT i.*
+    ,cu.Name CreateByName
+    ,mu.Name ModifyByName
+FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
+LEFT JOIN AlertDb.dbo.PM_WECHAT_USER cu WITH(NOLOCK)
+    ON cu.UserID COLLATE Latin1_General_CI_AS=i.CreateBy AND cu.RowDeleted=0
+LEFT JOIN AlertDb.dbo.PM_WECHAT_USER mu WITH(NOLOCK)
+    ON mu.UserID COLLATE Latin1_General_CI_AS=i.ModifyBy AND mu.RowDeleted=0
 WHERE";
                     if (dto.Id.HasValue)
                         sql += " Id=@Id";
-    {{ range $column := .GetCSGetProps }}                else if ({{ if eq $column.GetCSType "string" }}!string.IsNullOrWhiteSpace(dto.{{ $column.Name }}){{ else }}dto.{{ $column.Name }}.HasValue{{ end }})
-                        sql += " {{ $column.Name }}=@{{ $column.Name }} AND DeleteFlag=0";
-    {{ end }}                var res = db.QueryFirstOrDefault<${this.csModelName}Dto>(sql, dto);
+    ${this.getColumns
+      .map(
+        (i) => `                else if (${
+          i.type?.csType === 'string'
+            ? `!string.IsNullOrWhiteSpace(dto.${i.name})`
+            : `dto.${i.name}.HasValue`
+        })
+                        sql += " ${i.name}=@${i.name} AND DeleteFlag=0";
+    `
+      )
+      .join('')}                var res = db.QueryFirstOrDefault<${this.csModelName}Dto>(sql, dto);
                     return Tuple.Create(res, "");
                 }
             }
@@ -771,16 +807,12 @@ WHERE";
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
                     var name = "";
-                    var sql = @"SELECT COUNT(Code) FROM ${this.db}.${this.schema}.${this.name}
-WHERE 1=1";
+                    var sql = @"SELECT COUNT(1)
+FROM ${this.db}.${this.schema}.${this.name} WITH(NOLOCK)
+WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join(' && ')}";
                     if (dto.ExcludeId.HasValue)
                         sql += " AND Id<>@ExcludeId";
-    {{ range $column := .GetCSUniqueProps }}                if ({{ if eq $column.GetCSType "string" }}!string.IsNullOrWhiteSpace(dto.{{ $column.Name }}){{ else }}dto.{{ $column.Name }}.HasValue{{ end }})
-                    {
-                        sql += " AND {{ $column.Name }}=@{{ $column.Name }}";
-                        name += "{{ $column.Description }}";
-                    }
-    {{ end }}                sql += " AND DeleteFlag=0";
+                    sql += " AND DeleteFlag=0";
                     var cnt = db.QueryFirst<int>(sql, dto);
                     if (cnt > 0)
                         return Tuple.Create(false, $"{name}重复");
@@ -809,8 +841,12 @@ WHERE 1=1";
                     })null, valid.Item2);
                 var validDto = new UniqueValidate${this.csModelName}Dto
                 {
-{{ range $column := .GetCSUniqueProps }}                    {{ $column.Name }} = dto.{{ $column.Name }},
-{{ end }}                };
+${this.uniqueColumns
+  .map(
+    (i) => `                    ${i.name} = dto.${i.name},
+`
+  )
+  .join('')}                };
                 valid = UniqueValidate${this.csModelName}(validDto);
                 if (!valid.Item1)
                     return Tuple.Create((${
@@ -840,8 +876,12 @@ WHERE 1=1";
                 var validDto = new UniqueValidate${this.csModelName}Dto
                 {
                     ExcludeId = dto.Id,
-{{ range $column := .GetCSUniqueProps }}                    {{ $column.Name }} = dto.{{ $column.Name }},
-{{ end }}                };
+${this.uniqueColumns
+  .map(
+    (i) => `                    ${i.name} = dto.${i.name},
+`
+  )
+  .join('')}                };
                 valid = UniqueValidate${this.csModelName}(validDto);
                 if (!valid.Item1) return valid;
                 using (var db = ConnectionFactory.${this.db}Connection())
