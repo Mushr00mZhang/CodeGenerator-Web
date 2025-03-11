@@ -197,6 +197,7 @@ const submit = async () => {
 };
 const reset = () => {
   newColumn.value = new DbTableColumn(props.column);
+  typeChanged();
   columnFormRef.value?.clearValidate();
 };
 type Props = {
