@@ -44,8 +44,10 @@ export class DbTableColumnType {
 }
 export type DbTableColumnSource = OmitAndOptional<
   DbTableColumn,
+  | 'camelName'
   | 'sqlType'
   | 'csProp'
+  | 'csPropWithJsonProperty'
   | 'csNullableProp'
   | 'isDefaultProp'
   | 'isPrimaryName'
@@ -126,6 +128,9 @@ export class DbTableColumn {
     this.isUpdateProp = source.isUpdateProp ?? true;
     this.isImportProp = source.isImportProp ?? true;
   }
+  get camelName() {
+    return `${this.name[0]?.toLowerCase()}${this.name.slice(1)}`;
+  }
   get isDefaultProp() {
     return ['id', 'createby', 'createtime', 'modifyby', 'modifytime', 'deleteflag'].includes(
       this.name.toLowerCase()
@@ -143,6 +148,14 @@ export class DbTableColumn {
     return `        /// <summary>
         /// ${this.desc}
         /// </summary>
+        public ${this.type?.csType} ${this.name} { get; set; }
+`;
+  }
+  get csPropWithJsonProperty() {
+    return `        /// <summary>
+        /// ${this.desc}
+        /// </summary>
+        [JsonProperty("${this.camelName}")]
         public ${this.type?.csType} ${this.name} { get; set; }
 `;
   }
@@ -267,7 +280,7 @@ export const ListDefaultDbTableColumn = () => [
   }),
   new DbTableColumn({
     name: 'DeleteFlag',
-    desc: '删除标记',
+    desc: '是否删除',
     index: 104,
     type: DbTableColumnTypeInt,
     isRequired: true,
@@ -326,10 +339,12 @@ export class DbTable {
     return this.nonDefaultColumns.filter((i) => i.isListProp);
   }
   get uniqueColumns() {
-    return this.nonDefaultColumns.filter((i) => i.isRequired && i.isUnique);
+    return this.nonDefaultColumns.filter((i) => !i.isPrimary && i.isRequired && i.isUnique);
   }
   get getColumns() {
-    return this.uniqueColumns.filter((i) => i.isGetProp);
+    return this.nonDefaultColumns.filter(
+      (i) => !i.isPrimary && i.isRequired && i.isUnique && i.isGetProp
+    );
   }
   get createColumns() {
     return this.nonDefaultColumns.filter((i) => i.isCreateProp);
@@ -380,6 +395,7 @@ GO
   get csModel() {
     return `using Dapper;
 using Dapper.Contrib.Extensions;
+using Newtonsoft.Json;
 using Siemens.MES.Public;
 using System;
 using System.Collections.Generic;
@@ -398,26 +414,32 @@ namespace ${this.namespace}
         /// 主键Id
         /// </summary>
         ${this.primaryKey?.type?.csType === 'long' ? '[Key]' : '[ExplicitKey]'}
+        [JsonProperty("${this.primaryKey?.camelName}")]
         public ${this.primaryKey?.type?.csType} Id { get; set; }
-${this.nonDefaultColumns.map((i) => i.csProp).join('')}        /// <summary>
+${this.nonDefaultColumns.map((i) => i.csPropWithJsonProperty).join('')}        /// <summary>
         /// 创建人
         /// </summary>
+        [JsonProperty("createBy")]
         public string CreateBy { get; set; }
         /// <summary>
         /// 创建时间
         /// </summary>
+        [JsonProperty("createTime")]
         public DateTime CreateTime { get; set; }
         /// <summary>
         /// 修改人
         /// </summary>
+        [JsonProperty("modifyBy")]
         public string ModifyBy { get; set; }
         /// <summary>
         /// 修改时间
         /// </summary>
+        [JsonProperty("modifyTime")]
         public DateTime? ModifyTime { get; set; }
         /// <summary>
-        /// 删除标记
+        /// 是否删除
         /// </summary>
+        [JsonProperty("deleteFlag")]
         public int DeleteFlag { get; set; } = 0;
     }
     /// <summary>
@@ -428,10 +450,12 @@ ${this.nonDefaultColumns.map((i) => i.csProp).join('')}        /// <summary>
         /// <summary>
         /// 创建人名称
         /// </summary>
+        [JsonProperty("createByName")]
         public string CreateByName { get; set; }
         /// <summary>
         /// 修改人名称
         /// </summary>
+        [JsonProperty("modifyByName")]
         public string ModifyByName { get; set; }
     }
     /// <summary>
@@ -439,7 +463,7 @@ ${this.nonDefaultColumns.map((i) => i.csProp).join('')}        /// <summary>
     /// </summary>
     public class List${this.csModelName}Dto
     {
-${this.listColumns.map((i) => i.csProp).join('')}        /// <summary>
+${this.listColumns.map((i) => i.csNullableProp).join('')}        /// <summary>
         /// 包含已删除
         /// </summary>
         public bool IncludeDeleted { get; set; } = false;
@@ -470,7 +494,7 @@ ${this.listColumns.map((i) => i.csProp).join('')}        /// <summary>
         /// 主键Id
         /// </summary>
         public ${this.primaryKey?.type?.csNullableType} Id { get; set; }
-${this.getColumns.map((i) => i.csProp).join('')}        /// <summary>
+${this.getColumns.map((i) => i.csNullableProp).join('')}        /// <summary>
         /// 数据验证
         /// </summary>
         /// <returns>是否合法, 错误信息</returns>
@@ -543,7 +567,7 @@ ${
         /// </summary>
         public DateTime CreateTime => DateTime.Now;
         /// <summary>
-        /// 删除标记
+        /// 是否删除
         /// </summary>
         public int DeleteFlag => 0;
         /// <summary>
@@ -592,7 +616,7 @@ ${this.updateColumns.map((i) => i.csProp).join('')}        /// <summary>
         public Tuple<bool, string> Validate()
         {
             var errors = new List<string>();
-${this.createColumns
+${this.updateColumns
   .filter((i) => i.isRequired && i.type?.csType === 'string')
   .map(
     (i) => `            if (string.IsNullOrWhiteSpace(${i.name}))
@@ -623,7 +647,7 @@ ${this.createColumns
         /// </summary>
         public DateTime ModifyTime => DateTime.Now;
         /// <summary>
-        /// 删除标记
+        /// 是否删除
         /// </summary>
         public int DeleteFlag => 1;
         /// <summary>
@@ -649,21 +673,18 @@ ${this.createColumns
         {
             var conditions = new List<string>();
 ${this.listColumns
-  .map((i) =>
-    i.type?.csType === 'string' && !i.isFullyMatch
-      ? `            if (!string.IsNullOrWhiteSpace(dto.${i.name}))
-            {
-                dto.${i.name} = $"%{dto.${i.name}}%";
-                conditions.Add("${i.name} LIKE @${i.name}");
-            }
-`
-      : `            if (dto.${i.name}.HasValue)
-                conditions.Add("${i.name}=@${i.name}");
-`
+  .map(
+    (i) =>
+      (i.type?.csType === 'string'
+        ? `            if (!string.IsNullOrWhiteSpace(dto.${i.name}))`
+        : `            if (dto.${i.name}.HasValue)`) +
+      (i.isFullyMatch
+        ? `\n                conditions.Add("i.${i.name}=@${i.name}");\n`
+        : `\n                conditions.Add("i.${i.name} LIKE CONCAT(N'%',@${i.name}),N'%'");\n`)
   )
   .join('')}            if (!dto.IncludeDeleted)
-                conditions.Add("DeleteFlag=0");
-            return conditions.Count > 0 ? $"WHERE {string.Join(" AND ", conditions)}" : "";
+                conditions.Add("i.DeleteFlag=0");
+            return conditions.Count > 0 ? $"WHERE {string.Join(" AND \n      ", conditions)}" : "";
         }
         /// <summary>
         /// 获取${this.desc}列表
@@ -724,7 +745,7 @@ LEFT JOIN AlertDb.dbo.PM_WECHAT_USER cu WITH(NOLOCK)
 LEFT JOIN AlertDb.dbo.PM_WECHAT_USER mu WITH(NOLOCK)
     ON mu.UserID COLLATE Latin1_General_CI_AS=i.ModifyBy AND mu.RowDeleted=0
 {filter}{1}";
-                    var totalSql = string.Format(tmp, "COUNT(Id)", "");
+                    var totalSql = string.Format(tmp, "COUNT(i.Id)", "");
                     var itemsSql = string.Format(tmp, @"i.*
     ,cu.Name CreateByName
     ,mu.Name ModifyByName", @"
@@ -771,7 +792,7 @@ LEFT JOIN AlertDb.dbo.PM_WECHAT_USER mu WITH(NOLOCK)
     ON mu.UserID COLLATE Latin1_General_CI_AS=i.ModifyBy AND mu.RowDeleted=0
 WHERE";
                     if (dto.Id.HasValue)
-                        sql += " Id=@Id";
+                        sql += " i.Id=@Id";
     ${this.getColumns
       .map(
         (i) => `                else if (${
@@ -790,14 +811,16 @@ WHERE";
                 return Tuple.Create((${this.csModelName}Dto)null, ex.Message);
             }
         }
-        /// <summary>
+${
+  this.uniqueColumns.length
+    ? `(        /// <summary>
         /// 唯一性校验${this.desc}
         /// </summary>
         /// <param name="dto">唯一性校验${this.desc}Dto</param>
         /// <returns>校验结果, 错误信息</returns>
         public Tuple<bool, string> UniqueValidate${this.csModelName}(UniqueValidate${
-      this.csModelName
-    }Dto dto)
+        this.csModelName
+      }Dto dto)
         {
             try
             {
@@ -823,14 +846,16 @@ WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join(' && ')}";
                 return Tuple.Create(false, ex.Message);
             }
         }
-        /// <summary>
+)`
+    : ''
+}        /// <summary>
         /// 创建${this.desc}
         /// </summary>
         /// <param name="dto">创建${this.desc}Dto</param>
         /// <returns>主键Id, 错误信息</returns>
         public Tuple<${this.primaryKey?.type?.csNullableType}, string> Create${
       this.csModelName
-    }(Create${this.csModelName}Dto dto)
+    }(Create${this.csModelName}Dto dto, IDbConnection db, IDbTransaction tran)
         {
             try
             {
@@ -839,7 +864,9 @@ WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join(' && ')}";
                     return Tuple.Create((${
                       this.primaryKey?.type?.csNullableType
                     })null, valid.Item2);
-                var validDto = new UniqueValidate${this.csModelName}Dto
+${
+  this.uniqueColumns.length
+    ? `(                var validDto = new UniqueValidate${this.csModelName}Dto
                 {
 ${this.uniqueColumns
   .map(
@@ -852,9 +879,19 @@ ${this.uniqueColumns
                     return Tuple.Create((${
                       this.primaryKey?.type?.csNullableType
                     })null, valid.Item2);
-                using (var db = ConnectionFactory.${this.db}Connection())
+)`
+    : ''
+}                if (db == null)
                 {
-                    var res = db.Insert(dto);
+                    using (db = ConnectionFactory.${this.db}Connection())
+                    {
+                        var res = db.Insert(dto);
+                        return Tuple.Create((${this.primaryKey?.type?.csNullableType})res, "");
+                    }
+                }
+                else
+                {
+                    var res = db.Insert(dto, tran);
                     return Tuple.Create((${this.primaryKey?.type?.csNullableType})res, "");
                 }
             }
@@ -867,13 +904,17 @@ ${this.uniqueColumns
         /// </summary>
         /// <param name="dto">更新${this.desc}Dto</param>
         /// <returns>是否成功, 错误信息</returns>
-        public Tuple<bool, string> Update${this.csModelName}(Update${this.csModelName}Dto dto)
+        public Tuple<bool, string> Update${this.csModelName}(Update${
+      this.csModelName
+    }Dto dto, IDbConnection db, IDbTransaction tran)
         {
             try
             {
                 var valid = dto.Validate();
                 if (!valid.Item1) return valid;
-                var validDto = new UniqueValidate${this.csModelName}Dto
+${
+  this.uniqueColumns.length
+    ? `(                var validDto = new UniqueValidate${this.csModelName}Dto
                 {
                     ExcludeId = dto.Id,
 ${this.uniqueColumns
@@ -884,9 +925,19 @@ ${this.uniqueColumns
   .join('')}                };
                 valid = UniqueValidate${this.csModelName}(validDto);
                 if (!valid.Item1) return valid;
-                using (var db = ConnectionFactory.${this.db}Connection())
+)`
+    : ''
+}                if (db == null)
                 {
-                    var res = db.Update(dto);
+                    using (db = ConnectionFactory.${this.db}Connection())
+                    {
+                        var res = db.Update(dto);
+                        return Tuple.Create(res, "");
+                    }
+                }
+                else
+                {
+                    var res = db.Update(dto, tran);
                     return Tuple.Create(res, "");
                 }
             }
@@ -899,19 +950,30 @@ ${this.uniqueColumns
         /// </summary>
         /// <param name="dto">删除${this.desc}Dto</param>
         /// <returns>是否成功, 错误信息</returns>
-        public Tuple<bool, string> Delete${this.csModelName}(Delete${this.csModelName}Dto dto)
+        public Tuple<bool, string> Delete${this.csModelName}(Delete${
+      this.csModelName
+    }Dto dto, IDbConnection db, IDbTransaction tran)
         {
             try
             {
                 var valid = dto.Validate();
                 if (!valid.Item1) return valid;
-                using (var db = ConnectionFactory.${this.db}Connection())
+                if (db == null)
                 {
-                    var res = db.Update(dto);
+                    using (db = ConnectionFactory.${this.db}Connection())
+                    {
+                        var res = db.Update(dto);
+                        return Tuple.Create(res, "");
+                    }
+                }
+                else
+                {
+                    var res = db.Update(dto, tran);
                     return Tuple.Create(res, "");
                 }
             }
-            catch (Exception ex) {
+            catch (Exception ex)
+            {
                 return Tuple.Create(false, ex.Message);
             }
         }
