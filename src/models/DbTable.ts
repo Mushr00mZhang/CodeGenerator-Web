@@ -684,7 +684,7 @@ ${this.listColumns
   )
   .join('')}            if (!dto.IncludeDeleted)
                 conditions.Add("i.DeleteFlag=0");
-            return conditions.Count > 0 ? $"WHERE {string.Join(" AND \n      ", conditions)}" : "";
+            return conditions.Count > 0 ? $"WHERE {string.Join(" AND \\n      ", conditions)}" : "";
         }
         /// <summary>
         /// 获取${this.desc}列表
