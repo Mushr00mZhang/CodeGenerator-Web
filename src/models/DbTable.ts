@@ -813,7 +813,7 @@ WHERE";
         }
 ${
   this.uniqueColumns.length
-    ? `(        /// <summary>
+    ? `        /// <summary>
         /// 唯一性校验${this.desc}
         /// </summary>
         /// <param name="dto">唯一性校验${this.desc}Dto</param>
@@ -846,7 +846,7 @@ WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join(' && ')}";
                 return Tuple.Create(false, ex.Message);
             }
         }
-)`
+`
     : ''
 }        /// <summary>
         /// 创建${this.desc}
@@ -866,7 +866,7 @@ WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join(' && ')}";
                     })null, valid.Item2);
 ${
   this.uniqueColumns.length
-    ? `(                var validDto = new UniqueValidate${this.csModelName}Dto
+    ? `                var validDto = new UniqueValidate${this.csModelName}Dto
                 {
 ${this.uniqueColumns
   .map(
@@ -879,7 +879,7 @@ ${this.uniqueColumns
                     return Tuple.Create((${
                       this.primaryKey?.type?.csNullableType
                     })null, valid.Item2);
-)`
+`
     : ''
 }                if (db == null)
                 {
@@ -914,7 +914,7 @@ ${this.uniqueColumns
                 if (!valid.Item1) return valid;
 ${
   this.uniqueColumns.length
-    ? `(                var validDto = new UniqueValidate${this.csModelName}Dto
+    ? `                var validDto = new UniqueValidate${this.csModelName}Dto
                 {
                     ExcludeId = dto.Id,
 ${this.uniqueColumns
@@ -925,7 +925,7 @@ ${this.uniqueColumns
   .join('')}                };
                 valid = UniqueValidate${this.csModelName}(validDto);
                 if (!valid.Item1) return valid;
-)`
+`
     : ''
 }                if (db == null)
                 {
