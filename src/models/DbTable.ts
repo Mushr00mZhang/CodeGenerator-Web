@@ -855,7 +855,7 @@ WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join(' && ')}";
         /// <returns>主键Id, 错误信息</returns>
         public Tuple<${this.primaryKey?.type?.csNullableType}, string> Create${
       this.csModelName
-    }(Create${this.csModelName}Dto dto, IDbConnection db, IDbTransaction tran)
+    }(Create${this.csModelName}Dto dto, IDbConnection db = null, IDbTransaction tran = null)
         {
             try
             {
@@ -906,7 +906,7 @@ ${this.uniqueColumns
         /// <returns>是否成功, 错误信息</returns>
         public Tuple<bool, string> Update${this.csModelName}(Update${
       this.csModelName
-    }Dto dto, IDbConnection db, IDbTransaction tran)
+    }Dto dto, IDbConnection db = null, IDbTransaction tran = null)
         {
             try
             {
@@ -952,7 +952,7 @@ ${this.uniqueColumns
         /// <returns>是否成功, 错误信息</returns>
         public Tuple<bool, string> Delete${this.csModelName}(Delete${
       this.csModelName
-    }Dto dto, IDbConnection db, IDbTransaction tran)
+    }Dto dto, IDbConnection db = null, IDbTransaction tran = null)
         {
             try
             {
