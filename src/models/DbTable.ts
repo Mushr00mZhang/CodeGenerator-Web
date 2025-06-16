@@ -23,12 +23,12 @@ export class DbTableColumnType {
   csType: string;
   /** 是否主键字段 */
   isPrimary: boolean;
-  constructor(source: DbTableColumnTypeSource) {
-    this.name = source.name;
-    this.scale = source.scale ?? false;
-    this.size = source.size ?? false;
-    this.csType = source.csType;
-    this.isPrimary = source.isPrimary ?? false;
+  constructor(source?: DbTableColumnTypeSource) {
+    this.name = source?.name ?? '';
+    this.scale = source?.scale ?? false;
+    this.size = source?.size ?? false;
+    this.csType = source?.csType ?? 'string';
+    this.isPrimary = source?.isPrimary ?? false;
   }
   get csNullableType() {
     switch (this.csType) {
@@ -110,23 +110,23 @@ export class DbTableColumn {
   /** 是否导入字段 */
   isImportProp: boolean;
 
-  constructor(source: DbTableColumnSource) {
-    this.name = source.name ?? '';
-    this.desc = source.desc ?? '';
-    this.index = source.index ?? 1;
-    this.type = source.type;
-    this.size = source.size;
-    this.scale = source.scale;
-    this.isPrimary = source.isPrimary ?? false;
-    this.isRequired = source.isRequired ?? false;
-    this.default = source.default ?? '';
-    this.isUnique = source.isUnique ?? false;
-    this.isListProp = source.isListProp ?? false;
-    this.isFullyMatch = source.isFullyMatch ?? true;
-    this.isGetProp = source.isGetProp ?? false;
-    this.isCreateProp = source.isCreateProp ?? true;
-    this.isUpdateProp = source.isUpdateProp ?? true;
-    this.isImportProp = source.isImportProp ?? true;
+  constructor(source?: DbTableColumnSource) {
+    this.name = source?.name ?? '';
+    this.desc = source?.desc ?? '';
+    this.index = source?.index ?? 1;
+    this.type = source?.type;
+    this.size = source?.size;
+    this.scale = source?.scale;
+    this.isPrimary = source?.isPrimary ?? false;
+    this.isRequired = source?.isRequired ?? false;
+    this.default = source?.default ?? '';
+    this.isUnique = source?.isUnique ?? false;
+    this.isListProp = source?.isListProp ?? false;
+    this.isFullyMatch = source?.isFullyMatch ?? true;
+    this.isGetProp = source?.isGetProp ?? false;
+    this.isCreateProp = source?.isCreateProp ?? true;
+    this.isUpdateProp = source?.isUpdateProp ?? true;
+    this.isImportProp = source?.isImportProp ?? true;
   }
   get camelName() {
     return `${this.name[0]?.toLowerCase()}${this.name.slice(1)}`;
@@ -317,14 +317,14 @@ export class DbTable {
   desc: string;
   /** 列 */
   columns: DbTableColumn[];
-  constructor(source: DbTableSource) {
-    this.name = source.name ?? '';
-    this.db = source.db ?? 'AUXMESDB';
-    this.schema = source.schema ?? 'dbo';
-    this.namespace = source.namespace ?? 'Siemens.MES.SysMgt.Bus';
-    this.desc = source.desc ?? source.name ?? '';
+  constructor(source?: DbTableSource) {
+    this.name = source?.name ?? '';
+    this.db = source?.db ?? 'AUXMESDB';
+    this.schema = source?.schema ?? 'dbo';
+    this.namespace = source?.namespace ?? 'Siemens.MES.SysMgt.Bus';
+    this.desc = source?.desc ?? source?.name ?? '';
     this.columns = ListDefaultDbTableColumn();
-    this.columns.splice(1, 0, ...(source.columns ?? []));
+    this.columns.splice(1, 0, ...(source?.columns ?? []));
   }
   get primaryKey() {
     return this.columns.find((i) => i.isPrimary);

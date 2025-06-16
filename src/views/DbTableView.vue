@@ -118,7 +118,7 @@ import {
   type FormInstance,
   ElInputNumber,
 } from 'element-plus';
-const dbTable = ref(new DbTable({}));
+const dbTable = ref(new DbTable());
 /** 数据表表单dom元素 */
 const dbTableFormEl = ref<FormInstance>();
 /** 数据表表单规则列表 */
