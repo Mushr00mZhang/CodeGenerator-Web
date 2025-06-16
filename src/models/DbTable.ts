@@ -577,7 +577,7 @@ ${
         public Tuple<bool, string> Validate()
         {
             var errors = new List<string>();
-${this.getColumns
+${this.createColumns
   .filter((i) => i.isRequired)
   .map(
     (i) => `            if (${
