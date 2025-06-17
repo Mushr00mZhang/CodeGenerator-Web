@@ -21,6 +21,8 @@ export class DbTableColumnType {
   size: boolean;
   /** C#类型 */
   csType: string;
+  /** JS类型 */
+  jsType: string;
   /** 是否主键字段 */
   isPrimary: boolean;
   constructor(source?: DbTableColumnTypeSource) {
@@ -28,6 +30,7 @@ export class DbTableColumnType {
     this.scale = source?.scale ?? false;
     this.size = source?.size ?? false;
     this.csType = source?.csType ?? 'string';
+    this.jsType = source?.jsType ?? 'string';
     this.isPrimary = source?.isPrimary ?? false;
   }
   get csNullableType() {
@@ -196,26 +199,62 @@ export class DbTableColumn {
   }
 }
 export type DbTableColumnFormRule = DbTableColumn;
-const DbTableColumnTypeNvarchar = new DbTableColumnType({
-  name: 'nvarchar',
-  csType: 'string',
-  size: true,
+const DbTableColumnTypeUniqueidenfier = new DbTableColumnType({
+  name: 'uniqueidentifier',
+  csType: 'Guid',
+  jsType: 'string',
+  isPrimary: true,
 });
 const DbTableColumnTypeBigint = new DbTableColumnType({
   name: 'bigint',
   csType: 'long',
+  jsType: 'bigint',
   isPrimary: true,
 });
-const DbTableColumnTypeInt = new DbTableColumnType({ name: 'int', csType: 'int', isPrimary: true });
-const DbTableColumnTypeDatetime = new DbTableColumnType({ name: 'datetime', csType: 'Datetime' });
+const DbTableColumnTypeInt = new DbTableColumnType({
+  name: 'int',
+  csType: 'int',
+  jsType: 'number',
+  isPrimary: true,
+});
+const DbTableColumnTypeBit = new DbTableColumnType({
+  name: 'bit',
+  csType: 'bool',
+  jsType: 'boolean',
+});
+const DbTableColumnTypeDecimal = new DbTableColumnType({
+  name: 'decimal',
+  csType: 'decimal',
+  jsType: 'number',
+  scale: true,
+  size: true,
+});
+const DbTableColumnTypeNvarchar = new DbTableColumnType({
+  name: 'nvarchar',
+  csType: 'string',
+  jsType: 'string',
+  size: true,
+});
+const DbTableColumnTypeDatetime = new DbTableColumnType({
+  name: 'datetime',
+  csType: 'Datetime',
+  jsType: 'string',
+});
+const DbTableColumnTypeDate = new DbTableColumnType({
+  name: 'date',
+  csType: 'Datetime',
+  jsType: 'string',
+});
+
 export const DbTableColumnTypes = [
-  new DbTableColumnType({ name: 'uniqueidentifier', csType: 'Guid', isPrimary: true }),
-  DbTableColumnTypeNvarchar,
+  DbTableColumnTypeUniqueidenfier,
   DbTableColumnTypeBigint,
   DbTableColumnTypeInt,
-  new DbTableColumnType({ name: 'bit', csType: 'bool' }),
-  new DbTableColumnType({ name: 'decimal', csType: 'decimal', scale: true, size: true }),
+  DbTableColumnTypeBit,
+  DbTableColumnTypeDecimal,
+  DbTableColumnTypeNvarchar,
   DbTableColumnTypeDatetime,
+  DbTableColumnTypeDate,
 ];
 export const ListDefaultDbTableColumn = () => [
   new DbTableColumn({
