@@ -453,49 +453,42 @@ namespace ${this.namespace}
         /// 主键Id
         /// </summary>
         ${this.primaryKey?.type?.csType === 'long' ? '[Key]' : '[ExplicitKey]'}
-        [JsonProperty("${this.primaryKey?.camelName}")]
         public ${this.primaryKey?.type?.csType} Id { get; set; }
-${this.nonDefaultColumns.map((i) => i.csPropWithJsonProperty).join('')}        /// <summary>
+${this.nonDefaultColumns.map((i) => i.csProp).join('')}        /// <summary>
         /// 创建人
         /// </summary>
-        [JsonProperty("createBy")]
         public string CreateBy { get; set; }
         /// <summary>
         /// 创建时间
         /// </summary>
-        [JsonProperty("createTime")]
         public DateTime CreateTime { get; set; }
         /// <summary>
         /// 修改人
         /// </summary>
-        [JsonProperty("modifyBy")]
         public string ModifyBy { get; set; }
         /// <summary>
         /// 修改时间
         /// </summary>
-        [JsonProperty("modifyTime")]
         public DateTime? ModifyTime { get; set; }
         /// <summary>
         /// 是否删除
         /// </summary>
-        [JsonProperty("deleteFlag")]
         public int DeleteFlag { get; set; } = 0;
     }
     /// <summary>
     /// ${this.desc}Dto
     /// </summary>
-    public class ${this.csModelName}Dto : ${this.csModelName}
+    public class ${this.csModelName}Dto : ${this.csModelName}, IDtoWithRCount
     {
         /// <summary>
         /// 创建人名称
         /// </summary>
-        [JsonProperty("createByName")]
         public string CreateByName { get; set; }
         /// <summary>
         /// 修改人名称
         /// </summary>
-        [JsonProperty("modifyByName")]
         public string ModifyByName { get; set; }
+        public int RCount { get; set; }
     }
     /// <summary>
     /// ${this.desc}列表Dto
@@ -541,11 +534,8 @@ ${this.getColumns.map((i) => i.csNullableProp).join('')}        /// <summary>
         {
             var errors = new List<string>();
             if (!Id.HasValue${this.getColumns
-              .map((i) =>
-                i.type?.csType === 'string'
-                  ? ` && string.IsNullOrWhiteSpace(${i.name})`
-                  : ` && !${i.name}.HasValue`
-              )
+              .filter((i) => i.isRequired && i.type?.csType === 'string')
+              .map((i) => `\n                && string.IsNullOrWhiteSpace(${i.name})`)
               .join('')})
                 errors.Add("条件为空");
             return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
@@ -575,7 +565,7 @@ ${this.uniqueColumns.map((i) => i.csNullableProp).join('')}        /// <summary>
                   ? `string.IsNullOrWhiteSpace(${i.name})`
                   : `!${i.name}.HasValue`
               )
-              .join(' && \n')})
+              .join(' &&\n                ')})
                 errors.Add("条件为空");
             return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
         }
@@ -719,7 +709,7 @@ ${this.listColumns
         : `            if (dto.${i.name}.HasValue)`) +
       (i.isFullyMatch
         ? `\n                conditions.Add("i.${i.name}=@${i.name}");\n`
-        : `\n                conditions.Add("i.${i.name} LIKE CONCAT(N'%',@${i.name}),N'%'");\n`)
+        : `\n                conditions.Add("i.${i.name} LIKE CONCAT(N'%',@${i.name},N'%')");\n`)
   )
   .join('')}            if (!dto.IncludeDeleted)
                 conditions.Add("i.DeleteFlag=0");
@@ -742,16 +732,33 @@ ${this.listColumns
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
                     var filter = Filter${this.csModelName}(dto);
-                    var sql = $@"SELECT i.*
-    ,cu.Name CreateByName
-    ,mu.Name ModifyByName
+                    var sql = $@"
+SELECT COUNT(1) OVER() RCount
+      ,i.*
+      ,cu.Name CreateByName
+      ,mu.Name ModifyByName
+INTO #i
 FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
-LEFT JOIN AlertDb.dbo.PM_WECHAT_USER cu WITH(NOLOCK)
-    ON cu.UserID COLLATE Latin1_General_CI_AS=i.CreateBy AND cu.RowDeleted=0
-LEFT JOIN AlertDb.dbo.PM_WECHAT_USER mu WITH(NOLOCK)
-    ON mu.UserID COLLATE Latin1_General_CI_AS=i.ModifyBy AND mu.RowDeleted=0
 {filter}
-ORDER BY i.CreateTime";
+ORDER BY i.CreateTime DESC
+--OFFSET @Index*@Size ROWS
+--FETCH NEXT @Size ROWS ONLY;
+SELECT UserID COLLATE Latin1_General_CI_AS UserID
+      ,Name COLLATE Latin1_General_CI_AS Name
+INTO #u
+FROM AlertDb.dbo.PM_WECHAT_USER WITH(NOLOCK)
+WHERE UserID COLLATE Latin1_General_CI_AS IN(
+          SELECT DISTINCT CreateBy FROM #i
+          UNION ALL
+          SELECT DISTINCT ModifyBy FROM #i
+          WHERE ModifyBy IS NOT NULL
+      )
+  AND RowDeleted=0;
+SELECT i.*
+      ,cu.Name CreateByName
+      ,mu.Name ModifyByName
+LEFT JOIN #u cu ON cu.UserID=i.CreateBy
+LEFT JOIN #u mu ON mu.UserID=i.ModifyBy;";
                     var res = db.Query<${this.csModelName}Dto>(sql, dto);
                     return Tuple.Create(res, "");
                 }
@@ -777,25 +784,37 @@ ORDER BY i.CreateTime";
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
                     var filter = Filter${this.csModelName}(dto);
-                    var tmp = $@"SELECT {0}
+                    var sql = $@"
+SELECT COUNT(1) OVER() RCount
+      ,i.*
+      ,cu.Name CreateByName
+      ,mu.Name ModifyByName
+INTO #i
 FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
-LEFT JOIN AlertDb.dbo.PM_WECHAT_USER cu WITH(NOLOCK)
-    ON cu.UserID COLLATE Latin1_General_CI_AS=i.CreateBy AND cu.RowDeleted=0
-LEFT JOIN AlertDb.dbo.PM_WECHAT_USER mu WITH(NOLOCK)
-    ON mu.UserID COLLATE Latin1_General_CI_AS=i.ModifyBy AND mu.RowDeleted=0
-{filter}{1}";
-                    var totalSql = string.Format(tmp, "COUNT(i.Id)", "");
-                    var itemsSql = string.Format(tmp, @"i.*
-    ,cu.Name CreateByName
-    ,mu.Name ModifyByName", @"
-ORDER BY i.CreateTime
+{filter}
+ORDER BY i.CreateTime DESC
 OFFSET @Index*@Size ROWS
-FETCH NEXT @Size ROWS ONLY");
-                    var total = db.QueryFirst<int>(totalSql, dto);
-                    var items = db.Query<${this.csModelName}Dto>(itemsSql, dto);
+FETCH NEXT @Size ROWS ONLY;
+SELECT UserID COLLATE Latin1_General_CI_AS UserID
+      ,Name COLLATE Latin1_General_CI_AS Name
+INTO #u
+FROM AlertDb.dbo.PM_WECHAT_USER WITH(NOLOCK)
+WHERE UserID COLLATE Latin1_General_CI_AS IN(
+          SELECT DISTINCT CreateBy FROM #i
+          UNION ALL
+          SELECT DISTINCT ModifyBy FROM #i
+          WHERE ModifyBy IS NOT NULL
+      )
+  AND RowDeleted=0;
+SELECT i.*
+      ,cu.Name CreateByName
+      ,mu.Name ModifyByName
+LEFT JOIN #u cu ON cu.UserID=i.CreateBy
+LEFT JOIN #u mu ON mu.UserID=i.ModifyBy;";
+                    var items = db.Query<${this.csModelName}Dto>(sql, dto);
                     var res = new PagedList<${this.csModelName}Dto>
                     {
-                        Total = total,
+                        Total = items.Any() ? items.First().RCount : 0,
                         Items = items,
                     };
                     return Tuple.Create(res, "");
@@ -821,28 +840,43 @@ FETCH NEXT @Size ROWS ONLY");
                     return Tuple.Create((${this.csModelName}Dto)null, valid.Item2);
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
-                    var sql = @"SELECT i.*
-    ,cu.Name CreateByName
-    ,mu.Name ModifyByName
-FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
-LEFT JOIN AlertDb.dbo.PM_WECHAT_USER cu WITH(NOLOCK)
-    ON cu.UserID COLLATE Latin1_General_CI_AS=i.CreateBy AND cu.RowDeleted=0
-LEFT JOIN AlertDb.dbo.PM_WECHAT_USER mu WITH(NOLOCK)
-    ON mu.UserID COLLATE Latin1_General_CI_AS=i.ModifyBy AND mu.RowDeleted=0
-WHERE";
+                    var filter = "";
                     if (dto.Id.HasValue)
-                        sql += " i.Id=@Id";
-    ${this.getColumns
-      .map(
-        (i) => `                else if (${
-          i.type?.csType === 'string'
-            ? `!string.IsNullOrWhiteSpace(dto.${i.name})`
-            : `dto.${i.name}.HasValue`
-        })
-                        sql += " ${i.name}=@${i.name} AND DeleteFlag=0";
-    `
+                        filter = $"WHERE i.Id=@Id";
+                    else {
+                        filter = @"WHERE ${this.getColumns
+                          .map((i) => `i.${i.name}=@${i.name}`)
+                          .join('\n  AND ')}
+  AND i.DeleteFlag=0";
+                    }
+                    var sql = @"
+SELECT COUNT(1) OVER() RCount
+      ,i.*
+      ,cu.Name CreateByName
+      ,mu.Name ModifyByName
+INTO #i
+FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
+{filter}
+--ORDER BY i.CreateTime DESC
+--OFFSET @Index*@Size ROWS
+--FETCH NEXT @Size ROWS ONLY;
+SELECT UserID COLLATE Latin1_General_CI_AS UserID
+      ,Name COLLATE Latin1_General_CI_AS Name
+INTO #u
+FROM AlertDb.dbo.PM_WECHAT_USER WITH(NOLOCK)
+WHERE UserID COLLATE Latin1_General_CI_AS IN(
+          SELECT DISTINCT CreateBy FROM #i
+          UNION ALL
+          SELECT DISTINCT ModifyBy FROM #i
+          WHERE ModifyBy IS NOT NULL
       )
-      .join('')}                var res = db.QueryFirstOrDefault<${this.csModelName}Dto>(sql, dto);
+  AND RowDeleted=0;
+SELECT i.*
+      ,cu.Name CreateByName
+      ,mu.Name ModifyByName
+LEFT JOIN #u cu ON cu.UserID=i.CreateBy
+LEFT JOIN #u mu ON mu.UserID=i.ModifyBy;";
+                var res = db.QueryFirstOrDefault<${this.csModelName}Dto>(sql, dto);
                     return Tuple.Create(res, "");
                 }
             }
@@ -868,13 +902,13 @@ ${
                     return valid;
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
-                    var name = "";
+                    var name = "${this.uniqueColumns.map((i) => i.desc).join('')}";
                     var sql = @"SELECT COUNT(1)
 FROM ${this.db}.${this.schema}.${this.name} WITH(NOLOCK)
-WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join(' && ')}";
+WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join('\n  AND ')}";
                     if (dto.ExcludeId.HasValue)
-                        sql += " AND Id<>@ExcludeId";
-                    sql += " AND DeleteFlag=0";
+                        sql += "\n  AND Id<>@ExcludeId";
+                    sql += "\n  AND DeleteFlag=0";
                     var cnt = db.QueryFirst<int>(sql, dto);
                     if (cnt > 0)
                         return Tuple.Create(false, $"{name}重复");
@@ -904,10 +938,11 @@ WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join(' && ')}";
                       this.primaryKey?.type?.csNullableType
                     })null, valid.Item2);
 ${
-  this.uniqueColumns.length
+  this.uniqueColumns.filter((i) => this.createColumns.includes(i)).length
     ? `                var validDto = new UniqueValidate${this.csModelName}Dto
                 {
 ${this.uniqueColumns
+  .filter((i) => this.createColumns.includes(i))
   .map(
     (i) => `                    ${i.name} = dto.${i.name},
 `
@@ -952,11 +987,12 @@ ${this.uniqueColumns
                 var valid = dto.Validate();
                 if (!valid.Item1) return valid;
 ${
-  this.uniqueColumns.length
+  this.uniqueColumns.filter((i) => this.updateColumns.includes(i)).length
     ? `                var validDto = new UniqueValidate${this.csModelName}Dto
                 {
                     ExcludeId = dto.Id,
 ${this.uniqueColumns
+  .filter((i) => this.updateColumns.includes(i))
   .map(
     (i) => `                    ${i.name} = dto.${i.name},
 `
