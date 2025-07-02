@@ -735,8 +735,6 @@ ${this.listColumns
                     var sql = $@"
 SELECT COUNT(1) OVER() RCount
       ,i.*
-      ,cu.Name CreateByName
-      ,mu.Name ModifyByName
 INTO #i
 FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
 {filter}
@@ -787,8 +785,6 @@ LEFT JOIN #u mu ON mu.UserID=i.ModifyBy;";
                     var sql = $@"
 SELECT COUNT(1) OVER() RCount
       ,i.*
-      ,cu.Name CreateByName
-      ,mu.Name ModifyByName
 INTO #i
 FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
 {filter}
@@ -842,18 +838,20 @@ LEFT JOIN #u mu ON mu.UserID=i.ModifyBy;";
                 {
                     var filter = "";
                     if (dto.Id.HasValue)
-                        filter = $"WHERE i.Id=@Id";
+                        filter = "WHERE i.Id=@Id";${
+                          this.getColumns.length
+                            ? `
                     else {
                         filter = @"WHERE ${this.getColumns
                           .map((i) => `i.${i.name}=@${i.name}`)
                           .join('\n  AND ')}
   AND i.DeleteFlag=0";
-                    }
-                    var sql = @"
+                    }`
+                            : ''
+                        }
+                    var sql = $@"
 SELECT COUNT(1) OVER() RCount
       ,i.*
-      ,cu.Name CreateByName
-      ,mu.Name ModifyByName
 INTO #i
 FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
 {filter}
