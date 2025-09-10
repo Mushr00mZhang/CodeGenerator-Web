@@ -731,6 +731,8 @@ ${this.listColumns
                     return Tuple.Create((IEnumerable<${this.csModelName}Dto>)null, valid.Item2);
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
+                    if (db.Status == ConnectionStatus.Closed)
+                        db.Open();
                     var filter = Filter${this.csModelName}(dto);
                     var sql = $@"
 SELECT COUNT(1) OVER() RCount
@@ -738,25 +740,25 @@ SELECT COUNT(1) OVER() RCount
 INTO #i
 FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
 {filter}
-ORDER BY i.CreateTime DESC
+ORDER BY i.Id DESC
 --OFFSET @Index*@Size ROWS
 --FETCH NEXT @Size ROWS ONLY;
-SELECT UserID COLLATE Latin1_General_CI_AS UserID
-      ,Name COLLATE Latin1_General_CI_AS Name
+SELECT UserName Code
+      ,UserNumber Name
 INTO #u
-FROM AlertDb.dbo.PM_WECHAT_USER WITH(NOLOCK)
-WHERE UserID COLLATE Latin1_General_CI_AS IN(
+FROM AUXMESDB.dbo.Client_User WITH(NOLOCK)
+WHERE UserName IN(
           SELECT DISTINCT CreateBy FROM #i
           UNION ALL
           SELECT DISTINCT ModifyBy FROM #i
           WHERE ModifyBy IS NOT NULL
       )
-  AND RowDeleted=0;
+--AND DeleteFlag=0;
 SELECT i.*
-      ,cu.Name CreateByName
-      ,mu.Name ModifyByName
-LEFT JOIN #u cu ON cu.UserID=i.CreateBy
-LEFT JOIN #u mu ON mu.UserID=i.ModifyBy;";
+      ,ISNULL(cu.Name,i.CreateBy) CreateByName
+      ,ISNULL(mu.Name,i.ModifyBy) ModifyByName
+LEFT JOIN #u cu ON cu.Code=i.CreateBy
+LEFT JOIN #u mu ON mu.Code=i.ModifyBy;";
                     var res = db.Query<${this.csModelName}Dto>(sql, dto);
                     return Tuple.Create(res, "");
                 }
@@ -781,6 +783,8 @@ LEFT JOIN #u mu ON mu.UserID=i.ModifyBy;";
                     return Tuple.Create((PagedList<${this.csModelName}Dto>)null, valid.Item2);
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
+                    if (db.Status == ConnectionStatus.Closed)
+                        db.Open();
                     var filter = Filter${this.csModelName}(dto);
                     var sql = $@"
 SELECT COUNT(1) OVER() RCount
@@ -788,25 +792,25 @@ SELECT COUNT(1) OVER() RCount
 INTO #i
 FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
 {filter}
-ORDER BY i.CreateTime DESC
+ORDER BY i.Id DESC
 OFFSET @Index*@Size ROWS
 FETCH NEXT @Size ROWS ONLY;
-SELECT UserID COLLATE Latin1_General_CI_AS UserID
-      ,Name COLLATE Latin1_General_CI_AS Name
+SELECT UserName Code
+      ,UserNumber Name
 INTO #u
-FROM AlertDb.dbo.PM_WECHAT_USER WITH(NOLOCK)
-WHERE UserID COLLATE Latin1_General_CI_AS IN(
+FROM AUXMESDB.dbo.Client_User WITH(NOLOCK)
+WHERE UserName IN(
           SELECT DISTINCT CreateBy FROM #i
           UNION ALL
           SELECT DISTINCT ModifyBy FROM #i
           WHERE ModifyBy IS NOT NULL
       )
-  AND RowDeleted=0;
+--AND DeleteFlag=0;
 SELECT i.*
-      ,cu.Name CreateByName
-      ,mu.Name ModifyByName
-LEFT JOIN #u cu ON cu.UserID=i.CreateBy
-LEFT JOIN #u mu ON mu.UserID=i.ModifyBy;";
+      ,ISNULL(cu.Name,i.CreateBy) CreateByName
+      ,ISNULL(mu.Name,i.ModifyBy) ModifyByName
+LEFT JOIN #u cu ON cu.Code=i.CreateBy
+LEFT JOIN #u mu ON mu.Code=i.ModifyBy;";
                     var items = db.Query<${this.csModelName}Dto>(sql, dto);
                     var res = new PagedList<${this.csModelName}Dto>
                     {
@@ -836,6 +840,8 @@ LEFT JOIN #u mu ON mu.UserID=i.ModifyBy;";
                     return Tuple.Create((${this.csModelName}Dto)null, valid.Item2);
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
+                    if (db.Status == ConnectionStatus.Closed)
+                        db.Open();
                     var filter = "";
                     if (dto.Id.HasValue)
                         filter = "WHERE i.Id=@Id";${
@@ -855,25 +861,25 @@ SELECT COUNT(1) OVER() RCount
 INTO #i
 FROM ${this.db}.${this.schema}.${this.name} i WITH(NOLOCK)
 {filter}
---ORDER BY i.CreateTime DESC
+--ORDER BY i.Id DESC
 --OFFSET @Index*@Size ROWS
 --FETCH NEXT @Size ROWS ONLY;
-SELECT UserID COLLATE Latin1_General_CI_AS UserID
-      ,Name COLLATE Latin1_General_CI_AS Name
+SELECT UserName Code
+      ,UserNumber Name
 INTO #u
-FROM AlertDb.dbo.PM_WECHAT_USER WITH(NOLOCK)
-WHERE UserID COLLATE Latin1_General_CI_AS IN(
+FROM AUXMESDB.dbo.Client_User WITH(NOLOCK)
+WHERE UserName IN(
           SELECT DISTINCT CreateBy FROM #i
           UNION ALL
           SELECT DISTINCT ModifyBy FROM #i
           WHERE ModifyBy IS NOT NULL
       )
-  AND RowDeleted=0;
+--AND DeleteFlag=0;
 SELECT i.*
-      ,cu.Name CreateByName
-      ,mu.Name ModifyByName
-LEFT JOIN #u cu ON cu.UserID=i.CreateBy
-LEFT JOIN #u mu ON mu.UserID=i.ModifyBy;";
+      ,ISNULL(cu.Name,i.CreateBy) CreateByName
+      ,ISNULL(mu.Name,i.ModifyBy) ModifyByName
+LEFT JOIN #u cu ON cu.Code=i.CreateBy
+LEFT JOIN #u mu ON mu.Code=i.ModifyBy;";
                 var res = db.QueryFirstOrDefault<${this.csModelName}Dto>(sql, dto);
                     return Tuple.Create(res, "");
                 }
@@ -900,13 +906,15 @@ ${
                     return valid;
                 using (var db = ConnectionFactory.${this.db}Connection())
                 {
+                    if (db.Status == ConnectionStatus.Closed)
+                        db.Open();
                     var name = "${this.uniqueColumns.map((i) => i.desc).join('')}";
                     var sql = @"SELECT COUNT(1)
 FROM ${this.db}.${this.schema}.${this.name} WITH(NOLOCK)
 WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join('\n  AND ')}";
                     if (dto.ExcludeId.HasValue)
-                        sql += "\n  AND Id<>@ExcludeId";
-                    sql += "\n  AND DeleteFlag=0";
+                        sql += "\\n  AND Id<>@ExcludeId";
+                    sql += "\\n  AND DeleteFlag=0";
                     var cnt = db.QueryFirst<int>(sql, dto);
                     if (cnt > 0)
                         return Tuple.Create(false, $"{name}重复");
@@ -957,6 +965,8 @@ ${this.uniqueColumns
                 {
                     using (db = ConnectionFactory.${this.db}Connection())
                     {
+                        if (db.Status == ConnectionStatus.Closed)
+                            db.Open();
                         var res = db.Insert(dto);
                         return Tuple.Create((${this.primaryKey?.type?.csNullableType})res, "");
                     }
@@ -1004,6 +1014,8 @@ ${this.uniqueColumns
                 {
                     using (db = ConnectionFactory.${this.db}Connection())
                     {
+                        if (db.Status == ConnectionStatus.Closed)
+                            db.Open();
                         var res = db.Update(dto);
                         return Tuple.Create(res, "");
                     }
@@ -1035,6 +1047,8 @@ ${this.uniqueColumns
                 {
                     using (db = ConnectionFactory.${this.db}Connection())
                     {
+                        if (db.Status == ConnectionStatus.Closed)
+                            db.Open();
                         var res = db.Update(dto);
                         return Tuple.Create(res, "");
                     }
