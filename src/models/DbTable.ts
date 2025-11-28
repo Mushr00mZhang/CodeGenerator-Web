@@ -534,8 +534,11 @@ ${this.getColumns.map((i) => i.csNullableProp).join('')}        /// <summary>
         {
             var errors = new List<string>();
             if (!Id.HasValue${this.getColumns
-              .filter((i) => i.isRequired && i.type?.csType === 'string')
-              .map((i) => `\n                && string.IsNullOrWhiteSpace(${i.name})`)
+              .map((i) =>
+                i.type?.csType === 'string'
+                  ? `\n                && string.IsNullOrWhiteSpace(${i.name})`
+                  : `\n                && !${i.name}.HasValue`
+              )
               .join('')})
                 errors.Add("条件为空");
             return Tuple.Create(errors.Count == 0, string.Join(", ", errors));
@@ -757,6 +760,7 @@ WHERE UserName IN(
 SELECT i.*
       ,ISNULL(cu.Name,i.CreateBy) CreateByName
       ,ISNULL(mu.Name,i.ModifyBy) ModifyByName
+FROM #i i
 LEFT JOIN #u cu ON cu.Code=i.CreateBy
 LEFT JOIN #u mu ON mu.Code=i.ModifyBy;";
                     var res = db.Query<${this.csModelName}Dto>(sql, dto);
@@ -809,6 +813,7 @@ WHERE UserName IN(
 SELECT i.*
       ,ISNULL(cu.Name,i.CreateBy) CreateByName
       ,ISNULL(mu.Name,i.ModifyBy) ModifyByName
+FROM #i i
 LEFT JOIN #u cu ON cu.Code=i.CreateBy
 LEFT JOIN #u mu ON mu.Code=i.ModifyBy;";
                     var items = db.Query<${this.csModelName}Dto>(sql, dto);
@@ -878,6 +883,7 @@ WHERE UserName IN(
 SELECT i.*
       ,ISNULL(cu.Name,i.CreateBy) CreateByName
       ,ISNULL(mu.Name,i.ModifyBy) ModifyByName
+FROM #i i
 LEFT JOIN #u cu ON cu.Code=i.CreateBy
 LEFT JOIN #u mu ON mu.Code=i.ModifyBy;";
                 var res = db.QueryFirstOrDefault<${this.csModelName}Dto>(sql, dto);
@@ -908,7 +914,7 @@ ${
                 {
                     if (db.Status == ConnectionStatus.Closed)
                         db.Open();
-                    var name = "${this.uniqueColumns.map((i) => i.desc).join('')}";
+                    var name = "${this.uniqueColumns.map((i) => i.desc).join('、')}";
                     var sql = @"SELECT COUNT(1)
 FROM ${this.db}.${this.schema}.${this.name} WITH(NOLOCK)
 WHERE ${this.uniqueColumns.map((i) => `${i.name}=@${i.name}`).join('\n  AND ')}";
