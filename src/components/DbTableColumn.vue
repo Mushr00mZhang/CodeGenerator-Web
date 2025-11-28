@@ -57,7 +57,11 @@
         </ElCol>
         <ElCol :span="8">
           <ElFormItem label="唯一" prop="isUnique">
-            <ElRadioGroup v-model="newColumn.isUnique" :disabled="newColumn.isDefaultProp">
+            <ElRadioGroup
+              v-model="newColumn.isUnique"
+              @change="isUniqueChanged!"
+              :disabled="newColumn.isDefaultProp"
+            >
               <ElRadioButton :value="true">是</ElRadioButton>
               <ElRadioButton :value="false">否</ElRadioButton>
             </ElRadioGroup>
@@ -69,7 +73,11 @@
             prop="isGetProp"
             v-show="newColumn.isRequired && newColumn.isUnique"
           >
-            <ElRadioGroup v-model="newColumn.isGetProp" :disabled="newColumn.isDefaultProp">
+            <ElRadioGroup
+              v-model="newColumn.isGetProp"
+              @change="isGetChanged!"
+              :disabled="newColumn.isDefaultProp"
+            >
               <ElRadioButton :value="true">是</ElRadioButton>
               <ElRadioButton :value="false">否</ElRadioButton>
             </ElRadioGroup>
@@ -189,6 +197,18 @@ const newColumn = ref<DbTableColumn>(new DbTableColumn({}));
 const typeChanged = () => {
   if (rules.size && 0 in rules.size) rules.size[0].required = newColumn.value?.type?.size;
   if (rules.scale && 0 in rules.scale) rules.scale[0].required = newColumn.value?.type?.scale;
+};
+const isUniqueChanged = (n: boolean) => {
+  if (n) {
+    newColumn.value.isRequired = true;
+    newColumn.value.isGetProp = true;
+  }
+};
+const isGetChanged = (n: boolean) => {
+  if (n) {
+    newColumn.value.isRequired = true;
+    newColumn.value.isUnique = true;
+  }
 };
 const submit = async () => {
   const res = await columnFormRef.value?.validate();
